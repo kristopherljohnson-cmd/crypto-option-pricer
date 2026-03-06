@@ -1,0 +1,1328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Crypto Option Pricer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.26.0/plotly.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;1,300&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --bg:#07080d; --s1:#0b0d14; --s2:#0f1219; --s3:#141820; --s4:#1a2030;
+  --b1:#1e2535; --b2:#26304a; --b3:#2e3a58;
+  --c0:#e8edf5; --c1:#9aafc8; --c2:#5a6e8a; --c3:#344258;
+
+  --aqua:#00e5c8;   /* primary accent */
+  --lime:#b8ff47;   /* positive */
+  --ember:#ff6b35;  /* negative */
+  --gold:#f5c842;   /* highlight */
+  --iris:#818cf8;   /* greeks */
+  --rose:#f472b6;   /* put */
+  --sky:#38bdf8;    /* call */
+
+  --btc:#f7931a; --eth:#627eea; --sol:#9945ff;
+  --xrp:#00aae4; --bnb:#f3ba2f; --paxg:#d4af37;
+
+  --sans:'Syne',sans-serif;
+  --mono:'JetBrains Mono',monospace;
+  --r4:4px; --r8:8px; --r12:12px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--c0);font-family:var(--mono);font-size:12px;min-height:100vh;overflow-x:hidden}
+
+/* ── atmosphere ── */
+body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(ellipse 60% 40% at 20% 0%,rgba(0,229,200,.04) 0%,transparent 70%),
+    radial-gradient(ellipse 50% 40% at 80% 100%,rgba(129,140,248,.03) 0%,transparent 70%)}
+
+#app{position:relative;z-index:1;max-width:1580px;margin:0 auto;padding:18px 22px}
+
+/* ── HEADER ── */
+header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding-bottom:14px;margin-bottom:18px;
+  border-bottom:1px solid var(--b1);
+  flex-wrap:wrap;gap:12px;
+}
+.h-left{display:flex;align-items:center;gap:14px}
+.h-icon{
+  width:40px;height:40px;border-radius:var(--r8);
+  background:linear-gradient(135deg,rgba(0,229,200,.15),rgba(129,140,248,.1));
+  border:1px solid var(--aqua);
+  display:grid;place-items:center;
+  font-family:var(--sans);font-size:19px;font-weight:800;color:var(--aqua);
+  box-shadow:0 0 20px rgba(0,229,200,.1);
+}
+.h-title{font-family:var(--sans);font-size:18px;font-weight:700;color:#fff;letter-spacing:-.2px}
+.h-sub{font-size:9px;color:var(--c2);margin-top:2px;letter-spacing:.12em;text-transform:uppercase}
+.h-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.badge{
+  font-size:9px;padding:3px 9px;border-radius:20px;
+  border:1px solid var(--b2);color:var(--c2);letter-spacing:.07em;text-transform:uppercase;
+  display:flex;align-items:center;gap:5px;
+}
+.badge.live{border-color:rgba(184,255,71,.35);color:var(--lime)}
+.badge.ws{border-color:rgba(0,229,200,.3);color:var(--aqua)}
+.dot-live{width:5px;height:5px;border-radius:50%;background:var(--lime);animation:blink 2s infinite}
+.dot-ws{width:5px;height:5px;border-radius:50%;background:var(--c2)}
+.dot-ws.connected{background:var(--aqua);animation:blink 2s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+
+/* ── LAYOUT ── */
+.layout{display:grid;grid-template-columns:350px 1fr;gap:18px;align-items:start}
+@media(max-width:1100px){.layout{grid-template-columns:1fr}}
+
+/* ── PANEL (shared card) ── */
+.panel{background:var(--s1);border:1px solid var(--b1);border-radius:var(--r12);overflow:hidden}
+.panel-hd{
+  background:var(--s2);border-bottom:1px solid var(--b1);
+  padding:10px 14px;
+  font-size:8px;text-transform:uppercase;letter-spacing:.15em;color:var(--c2);
+}
+.panel-body{padding:16px}
+.panel-block{padding:16px;border-bottom:1px solid var(--b1)}
+.panel-block:last-child{border-bottom:none}
+
+/* ── ANCHOR GRID ── */
+.anchor-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.ab{
+  padding:9px 6px;border-radius:var(--r8);border:1.5px solid var(--b1);
+  cursor:pointer;background:var(--s2);color:var(--c2);
+  font-family:var(--sans);font-size:11px;font-weight:700;
+  transition:.12s;text-align:center;
+  display:flex;flex-direction:column;align-items:center;gap:3px;
+}
+.ab:hover:not(.active){border-color:var(--b3);color:var(--c0)}
+.ab .ab-sym{font-size:14px}
+.ab .ab-liq{font-size:7px;opacity:.55;letter-spacing:.06em;text-transform:uppercase}
+.ab .ab-iv{font-size:8px;opacity:.7;font-family:var(--mono)}
+.ab[data-a=BTC].active{border-color:var(--btc);background:rgba(247,147,26,.1);color:var(--btc)}
+.ab[data-a=ETH].active{border-color:var(--eth);background:rgba(98,126,234,.1);color:var(--eth)}
+.ab[data-a=SOL].active{border-color:var(--sol);background:rgba(153,69,255,.1);color:var(--sol)}
+.ab[data-a=XRP].active{border-color:var(--xrp);background:rgba(0,170,228,.1);color:var(--xrp)}
+.ab[data-a=BNB].active{border-color:var(--bnb);background:rgba(243,186,47,.1);color:var(--bnb)}
+.ab[data-a=PAXG].active{border-color:var(--paxg);background:rgba(212,175,55,.1);color:var(--paxg)}
+
+/* ── FORM ── */
+label.fl{display:block;font-size:8px;color:var(--c2);margin-bottom:4px;text-transform:uppercase;letter-spacing:.1em}
+input,select{
+  width:100%;background:var(--s2);border:1px solid var(--b1);
+  color:var(--c0);font-family:var(--mono);font-size:12px;
+  padding:8px 10px;border-radius:var(--r4);outline:none;transition:.12s;
+  -webkit-appearance:none;
+}
+input:focus,select:focus{border-color:var(--aqua);background:var(--s3)}
+input::placeholder{color:var(--c3)}
+.fhint{font-size:8px;color:var(--c2);margin-top:3px;line-height:1.6}
+.field{margin-bottom:10px}.field:last-child{margin-bottom:0}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+
+/* ── TYPE TOGGLE ── */
+.type-tog{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--b1);border-radius:var(--r4);overflow:hidden}
+.tt{
+  padding:9px;text-align:center;cursor:pointer;border:none;
+  font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.08em;
+  background:var(--s2);color:var(--c2);transition:.12s;
+}
+.tt:hover:not(.active){background:var(--s3);color:var(--c0)}
+.tt.call.active{background:rgba(56,189,248,.14);color:var(--sky)}
+.tt.put.active{background:rgba(244,114,182,.14);color:var(--rose)}
+
+/* ── RUN BUTTON ── */
+.btn-run{
+  width:100%;padding:12px;border-radius:var(--r8);
+  border:1px solid var(--aqua);cursor:pointer;
+  font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+  background:rgba(0,229,200,.09);color:var(--aqua);
+  transition:.15s;
+}
+.btn-run:hover{background:rgba(0,229,200,.18);box-shadow:0 0 24px rgba(0,229,200,.15)}
+.btn-run:active{transform:scale(.98)}
+.btn-run:disabled{opacity:.35;cursor:not-allowed;box-shadow:none;transform:none}
+.btn-sm{
+  padding:6px 12px;border-radius:var(--r4);border:1px solid var(--b2);
+  cursor:pointer;font-family:var(--mono);font-size:9px;
+  background:var(--s2);color:var(--c2);transition:.12s;
+}
+.btn-sm:hover{border-color:var(--gold);color:var(--gold)}
+
+/* ── STATUS ── */
+.sbar{
+  padding:9px 13px;border-radius:var(--r8);font-size:10px;
+  font-family:var(--mono);line-height:1.7;display:none;margin-bottom:12px;
+}
+.sbar.info{background:rgba(0,229,200,.05);border:1px solid rgba(0,229,200,.2);color:var(--aqua)}
+.sbar.warn{background:rgba(245,200,66,.05);border:1px solid rgba(245,200,66,.2);color:var(--gold)}
+.sbar.err{background:rgba(255,107,53,.05);border:1px solid rgba(255,107,53,.2);color:var(--ember)}
+.sbar.ok{background:rgba(184,255,71,.05);border:1px solid rgba(184,255,71,.2);color:var(--lime)}
+.spin{display:inline-block;width:9px;height:9px;border:1.5px solid currentColor;
+  border-top-color:transparent;border-radius:50%;animation:spin .45s linear infinite;
+  margin-right:5px;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+.logbox{
+  background:var(--s2);border:1px solid var(--b1);border-radius:var(--r4);
+  padding:7px 12px;font-size:9px;color:var(--c2);
+  max-height:80px;overflow-y:auto;margin-bottom:10px;line-height:2;
+}
+
+/* ── MAIN RESULTS ── */
+.main{display:flex;flex-direction:column;gap:16px}
+
+/* result header bar */
+.res-hdr{
+  background:var(--s1);border:1px solid var(--b1);border-radius:var(--r12);
+  padding:16px 20px;
+  display:flex;justify-content:space-between;align-items:flex-start;
+  flex-wrap:wrap;gap:14px;
+}
+.rh-l .rh-title{font-family:var(--sans);font-size:20px;font-weight:700;color:#fff;letter-spacing:-.3px}
+.rh-l .rh-sub{font-size:9px;color:var(--c2);margin-top:4px;letter-spacing:.06em}
+.rh-r{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start}
+.rh-stat{display:flex;flex-direction:column;align-items:flex-end;gap:2px}
+.rh-stat-lbl{font-size:7px;color:var(--c2);text-transform:uppercase;letter-spacing:.12em}
+.rh-stat-val{font-family:var(--mono);font-size:14px;font-weight:500}
+.src-chip{
+  font-size:8px;padding:2px 8px;border-radius:10px;
+  display:inline-flex;align-items:center;gap:4px;
+  font-family:var(--mono);font-weight:500;
+}
+.src-live{background:rgba(0,229,200,.1);border:1px solid rgba(0,229,200,.3);color:var(--aqua)}
+.src-fallback{background:rgba(245,200,66,.1);border:1px solid rgba(245,200,66,.3);color:var(--gold)}
+.src-synth{background:rgba(129,140,248,.1);border:1px solid rgba(129,140,248,.3);color:var(--iris)}
+
+/* metric cards */
+.metrics{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));
+  gap:1px;background:var(--b1);
+  border:1px solid var(--b1);border-radius:var(--r12);overflow:hidden;
+}
+.mc{background:var(--s1);padding:13px 15px}
+.mc-l{font-size:7px;color:var(--c2);text-transform:uppercase;letter-spacing:.12em;margin-bottom:6px}
+.mc-v{font-family:var(--sans);font-size:19px;font-weight:700;letter-spacing:-.3px;line-height:1.1}
+.mc-s{font-size:8px;color:var(--c2);margin-top:4px}
+
+/* greeks */
+.greeks{
+  display:grid;grid-template-columns:repeat(5,1fr);
+  gap:1px;background:var(--b1);
+  border:1px solid var(--b1);border-radius:var(--r12);overflow:hidden;
+}
+.gk{background:var(--s2);padding:11px 14px}
+.gk-g{font-family:var(--sans);font-size:16px;font-weight:800;color:var(--c2);margin-bottom:5px}
+.gk-v{font-family:var(--mono);font-size:13px}
+.gk-l{font-size:7px;color:var(--c2);text-transform:uppercase;letter-spacing:.1em;margin-top:3px}
+
+/* surface explain */
+.vol-box{
+  background:var(--s2);border:1px solid var(--b1);border-radius:var(--r8);
+  padding:11px 14px;font-size:10px;color:var(--c2);line-height:1.9;
+}
+.vol-box strong{color:var(--c0)}
+.vol-box .hl{color:var(--gold)}
+.vol-box .ok{color:var(--lime)}
+
+/* charts */
+.cg2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.cg3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+.cc{background:var(--s1);border:1px solid var(--b1);border-radius:var(--r12);overflow:hidden}
+.cc.s2{grid-column:1/-1}
+.ct{
+  padding:9px 14px;border-bottom:1px solid var(--b1);background:var(--s2);
+  font-size:7px;text-transform:uppercase;letter-spacing:.14em;color:var(--c2);
+  display:flex;align-items:center;gap:6px;
+}
+.ctd{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+.ch{height:245px}.ch.md{height:275px}.ch.lg{height:325px}
+
+/* vol table */
+.tbl-wrap{overflow-x:auto;border:1px solid var(--b1);border-radius:var(--r8)}
+table{width:100%;border-collapse:collapse;font-size:10px;font-family:var(--mono);white-space:nowrap}
+thead th{
+  background:var(--s2);padding:8px 11px;color:var(--c2);
+  font-size:7px;text-transform:uppercase;letter-spacing:.12em;
+  border-bottom:1px solid var(--b1);text-align:right;
+}
+thead th:first-child{text-align:left;min-width:160px}
+tbody td{padding:7px 11px;border-bottom:1px solid rgba(26,32,48,.7);text-align:right}
+tbody td:first-child{text-align:left}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover td{background:rgba(0,229,200,.02)}
+.atm-row{background:rgba(184,255,71,.025)!important}
+.atm-row td:first-child{color:var(--lime)}
+.sel-row td:first-child{color:var(--gold)}
+.iv-lo{color:var(--lime)}.iv-md{color:var(--aqua)}.iv-hi{color:var(--gold)}.iv-xh{color:var(--ember)}
+
+/* empty */
+.empty{text-align:center;padding:90px 20px;color:var(--c2)}
+.empty-glyph{font-size:50px;margin-bottom:16px;opacity:.15}
+.empty h2{font-family:var(--sans);font-size:15px;font-weight:600;color:var(--c1);margin-bottom:10px}
+.empty p{font-size:10px;line-height:2;max-width:440px;margin:0 auto}
+
+/* method cards */
+.method-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+.mcard{
+  background:var(--s2);border:1px solid var(--b1);border-radius:var(--r8);
+  padding:13px 15px;
+}
+.mcard-n{font-size:7px;color:var(--c2);text-transform:uppercase;letter-spacing:.14em;margin-bottom:7px}
+.mcard p{font-size:9px;color:var(--c2);line-height:1.8}
+.mcard strong{color:var(--c0)}
+
+@media(max-width:800px){
+  .cg2,.cg3{grid-template-columns:1fr}
+  .cc.s2{grid-column:1}
+  .greeks{grid-template-columns:repeat(3,1fr)}
+}
+</style>
+</head>
+<body>
+<div id="app">
+
+<!-- ── HEADER ── -->
+<header>
+  <div class="h-left">
+    <div class="h-icon">Σ</div>
+    <div>
+      <div class="h-title">Crypto Option Pricer</div>
+      <div class="h-sub">Deribit Live Surface · HV Scaling · Black-Scholes</div>
+    </div>
+  </div>
+  <div class="h-right">
+    <div class="badge live"><span class="dot-live"></span>Live Data</div>
+    <div class="badge ws" id="ws-badge"><span class="dot-ws" id="ws-dot"></span>WS: idle</div>
+    <div class="badge" id="fetch-badge" style="display:none"></div>
+  </div>
+</header>
+
+<div class="layout">
+
+<!-- ── SIDEBAR ── -->
+<div class="panel" style="position:sticky;top:18px">
+  <div class="panel-hd">Configuration</div>
+
+  <!-- Anchor -->
+  <div class="panel-block">
+    <div class="fl" style="margin-bottom:8px">Vol Surface Anchor — Deribit Live</div>
+    <div class="anchor-grid" id="anchor-grid">
+      <button class="ab active" data-a="BTC" onclick="setAnchor('BTC')">
+        <span class="ab-sym" style="color:var(--btc)">BTC</span>
+        <span class="ab-liq">Deepest</span>
+        <span class="ab-iv" id="aiv-BTC">—</span>
+      </button>
+      <button class="ab" data-a="ETH" onclick="setAnchor('ETH')">
+        <span class="ab-sym" style="color:var(--eth)">ETH</span>
+        <span class="ab-liq">Deep</span>
+        <span class="ab-iv" id="aiv-ETH">—</span>
+      </button>
+      <button class="ab" data-a="SOL" onclick="setAnchor('SOL')">
+        <span class="ab-sym" style="color:var(--sol)">SOL</span>
+        <span class="ab-liq">Good</span>
+        <span class="ab-iv" id="aiv-SOL">—</span>
+      </button>
+      <button class="ab" data-a="XRP" onclick="setAnchor('XRP')">
+        <span class="ab-sym" style="color:var(--xrp)">XRP</span>
+        <span class="ab-liq">Good</span>
+        <span class="ab-iv" id="aiv-XRP">—</span>
+      </button>
+      <button class="ab" data-a="BNB" onclick="setAnchor('BNB')">
+        <span class="ab-sym" style="color:var(--bnb)">BNB</span>
+        <span class="ab-liq">Moderate</span>
+        <span class="ab-iv" id="aiv-BNB">—</span>
+      </button>
+      <button class="ab" data-a="PAXG" onclick="setAnchor('PAXG')">
+        <span class="ab-sym" style="color:var(--paxg)">PAXG</span>
+        <span class="ab-liq">Gold</span>
+        <span class="ab-iv" id="aiv-PAXG">—</span>
+      </button>
+    </div>
+    <div class="fhint" style="margin-top:8px">Surface <em>shape</em> from anchor. Vol <em>level</em> scaled to target's 30d HV.</div>
+  </div>
+
+  <!-- Target -->
+  <div class="panel-block">
+    <div class="fl" style="margin-bottom:8px">Target Underlying</div>
+    <div class="g2">
+      <div class="field">
+        <label class="fl">Ticker</label>
+        <input id="ticker" value="SOL" oninput="this.value=this.value.toUpperCase()" placeholder="e.g. AVAX"/>
+      </div>
+      <div class="field">
+        <label class="fl">Spot (USD)</label>
+        <input type="number" id="spot" placeholder="auto-fetch"/>
+      </div>
+    </div>
+    <div class="fhint">If ticker = anchor, no scaling applied. Otherwise Binance/CG prices fetched for 30d HV.</div>
+  </div>
+
+  <!-- Option params -->
+  <div class="panel-block">
+    <div class="fl" style="margin-bottom:8px">Option Parameters</div>
+    <div class="field">
+      <div class="type-tog">
+        <button class="tt call active" id="btn-call" onclick="setType('call')">CALL ▲</button>
+        <button class="tt put"         id="btn-put"  onclick="setType('put')">PUT ▼</button>
+      </div>
+    </div>
+    <div class="g2">
+      <div class="field">
+        <label class="fl">Strike (USD)</label>
+        <input type="number" id="strike" placeholder="ATM if blank"/>
+      </div>
+      <div class="field">
+        <label class="fl">Expiry (days)</label>
+        <input type="number" id="expiry" value="30" min="1" max="730"/>
+      </div>
+    </div>
+    <div class="g2">
+      <div class="field">
+        <label class="fl">Risk-Free (%)</label>
+        <input type="number" id="rfr" value="5" step="0.1"/>
+      </div>
+      <div class="field">
+        <label class="fl">Notional ($)</label>
+        <input type="number" id="notional" value="10000" step="100"/>
+      </div>
+    </div>
+  </div>
+
+  <!-- HV overrides -->
+  <div class="panel-block">
+    <div class="fl" style="margin-bottom:8px">Manual HV Override (leave 0 = auto)</div>
+    <div class="g2">
+      <div class="field">
+        <label class="fl">Target HV (%)</label>
+        <input type="number" id="tgt-hv" value="0" step="1" min="0"/>
+      </div>
+      <div class="field">
+        <label class="fl">Anchor HV (%)</label>
+        <input type="number" id="anc-hv" value="0" step="1" min="0"/>
+      </div>
+    </div>
+  </div>
+
+  <!-- Run -->
+  <div class="panel-block">
+    <div id="sbar" class="sbar"></div>
+    <div id="logbox" class="logbox" style="display:none"></div>
+    <button class="btn-run" id="run-btn" onclick="runPricer()">▶ &nbsp;PRICE OPTION</button>
+    <div style="display:flex;gap:6px;margin-top:8px">
+      <button class="btn-sm" id="btn-csv" style="display:none" onclick="doExportCSV()">⬇ CSV</button>
+      <button class="btn-sm" id="btn-xls" style="display:none" onclick="doExportXLS()">⬇ Excel</button>
+    </div>
+  </div>
+</div><!-- /sidebar -->
+
+<!-- ── MAIN ── -->
+<div class="main">
+
+  <!-- results (hidden until priced) -->
+  <div id="results" style="display:none">
+
+    <div class="res-hdr" id="res-hdr">
+      <div class="rh-l">
+        <div class="rh-title" id="rh-title">—</div>
+        <div class="rh-sub" id="rh-sub">—</div>
+      </div>
+      <div class="rh-r" id="rh-r">—</div>
+    </div>
+
+    <div class="vol-box" id="vol-box">—</div>
+
+    <div class="metrics" id="metrics"></div>
+    <div class="greeks"  id="greeks"></div>
+
+    <div class="cg2">
+      <div class="cc">
+        <div class="ct"><span class="ctd" style="background:var(--aqua)"></span>Volatility Smile — Scaled vs Raw</div>
+        <div class="ch md" id="ch-smile"></div>
+      </div>
+      <div class="cc">
+        <div class="ct"><span class="ctd" style="background:var(--lime)"></span>P&amp;L Profile</div>
+        <div class="ch md" id="ch-pnl"></div>
+      </div>
+    </div>
+    <div class="cg2">
+      <div class="cc">
+        <div class="ct"><span class="ctd" style="background:var(--iris)"></span>Vol Surface 3D (Scaled)</div>
+        <div class="ch lg" id="ch-surf"></div>
+      </div>
+      <div class="cc">
+        <div class="ct"><span class="ctd" style="background:var(--gold)"></span>Greeks vs Spot</div>
+        <div class="ch lg" id="ch-greeks"></div>
+      </div>
+    </div>
+    <div class="cc">
+      <div class="ct"><span class="ctd" style="background:var(--gold)"></span>ATM Term Structure — Scaled vs Raw</div>
+      <div class="ch" id="ch-term"></div>
+    </div>
+
+    <div style="font-size:7px;color:var(--c2);text-transform:uppercase;letter-spacing:.14em;margin-bottom:8px">
+      Implied Vol Surface — Scaled to Target (%)
+    </div>
+    <div class="tbl-wrap">
+      <table><thead id="vt-head"></thead><tbody id="vt-body"></tbody></table>
+    </div>
+
+  </div><!-- /results -->
+
+  <!-- empty state -->
+  <div id="empty">
+    <div class="empty-glyph">◎</div>
+    <h2>Select an anchor and click Price Option</h2>
+    <p>Choose any of Deribit's 6 live option markets. The surface shape is borrowed from their live
+    <code>mark_iv</code> quotes. The vol level is scaled by your token's 30-day realized HV vs the anchor's.
+    <br><br>
+    Data is fetched over <strong>WebSocket</strong> (zero CORS restrictions).
+    Three automatic fallback layers ensure the app never fails to produce a surface.</p>
+  </div>
+
+  <!-- methodology -->
+  <div class="panel">
+    <div class="panel-hd">Methodology & Fallback Architecture</div>
+    <div class="panel-body">
+      <div class="method-grid">
+        <div class="mcard">
+          <div class="mcard-n">Layer 1 — Deribit WebSocket</div>
+          <p><strong>Primary:</strong> connects to <code>wss://www.deribit.com/ws/api/v2</code>. No CORS restrictions, no auth required. Sends <code>get_book_summary_by_currency</code> JSON-RPC over the socket. Receives full live <code>mark_iv</code> for every option. Timeout: 12s.</p>
+        </div>
+        <div class="mcard">
+          <div class="mcard-n">Layer 2 — Deribit REST fallback</div>
+          <p><strong>If WS fails:</strong> tries <code>https://www.deribit.com/api/v2/public/...</code> REST endpoint. Works when CORS headers are present (they usually are for public endpoints). Also tries <code>get_historical_volatility</code> for DVOL-derived ATM level.</p>
+        </div>
+        <div class="mcard">
+          <div class="mcard-n">Layer 3 — SVI Synthetic Surface</div>
+          <p><strong>If both fail:</strong> builds a full parametric vol surface using <strong>SVI (Stochastic Volatility Inspired)</strong> with calibrated parameters per anchor. ATM level from Deribit DVOL if available, else hard-coded. Shape is realistic: put skew, call wing flattening, contango term structure.</p>
+        </div>
+        <div class="mcard">
+          <div class="mcard-n">HV Scaling</div>
+          <p>Fetches <strong>32 daily closes</strong> from Binance klines (CoinGecko fallback) for anchor and target. Computes <strong>annualized 30-day log-return σ</strong>. Every IV on surface multiplied by <code>HV_target / HV_anchor</code>. Smile shape identical; only level shifts.</p>
+        </div>
+        <div class="mcard">
+          <div class="mcard-n">Interpolation</div>
+          <p>Bilinear in <strong>log-moneyness</strong> × <strong>√T</strong> space. Smile slices per expiry are built from nearby options. For the SVI surface, the parametric form gives clean closed-form values everywhere with no extrapolation artifacts.</p>
+        </div>
+        <div class="mcard">
+          <div class="mcard-n">Pricing</div>
+          <p>Standard European <strong>Black-Scholes-Merton</strong>. Greeks computed analytically: Δ, Γ, Θ/day, V/1%, ρ/1%. Break-even, intrinsic, and time value also shown. Notional converts to contract count.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /main -->
+</div><!-- /layout -->
+</div><!-- /app -->
+
+<script>
+/* ═══════════════════════════════════════════════════════════════
+   CONSTANTS & STATE
+═══════════════════════════════════════════════════════════════ */
+const DERIBIT_WS   = 'wss://www.deribit.com/ws/api/v2';
+const DERIBIT_REST = 'https://www.deribit.com/api/v2';
+const BN_BASE      = 'https://api.binance.com/api/v3';
+const CG_BASE      = 'https://api.coingecko.com/api/v3';
+
+const ANCHOR_COL = {BTC:'#f7931a',ETH:'#627eea',SOL:'#9945ff',XRP:'#00aae4',BNB:'#f3ba2f',PAXG:'#d4af37'};
+
+// Per-anchor SVI parameters: {a, b, rho, m, sigma, atmBase}
+// SVI: w(k) = a + b*(rho*(k-m) + sqrt((k-m)^2 + sigma^2))
+// IV = sqrt(w / T)  where k = log(K/F)
+const SVI_PARAMS = {
+  BTC:  {a:.005, b:.18, rho:-.35, m:.05, sigma:.12, atmBase:.65, termPow:.12},
+  ETH:  {a:.007, b:.22, rho:-.40, m:.04, sigma:.14, atmBase:.80, termPow:.10},
+  SOL:  {a:.010, b:.28, rho:-.30, m:.03, sigma:.17, atmBase:1.00, termPow:.09},
+  XRP:  {a:.009, b:.25, rho:-.32, m:.04, sigma:.15, atmBase:.90, termPow:.10},
+  BNB:  {a:.007, b:.20, rho:-.30, m:.04, sigma:.13, atmBase:.70, termPow:.11},
+  PAXG: {a:.003, b:.10, rho:-.20, m:.02, sigma:.08, atmBase:.18, termPow:.07},
+};
+
+// Deribit DVOL-derived ATM vols (recent typical levels, used as SVI fallback calibration)
+const DVOL_TYPICAL = {BTC:.58, ETH:.72, SOL:.98, XRP:.88, BNB:.68, PAXG:.20};
+
+const BN_SYM = {
+  BTC:'BTCUSDT',ETH:'ETHUSDT',SOL:'SOLUSDT',XRP:'XRPUSDT',BNB:'BNBUSDT',
+  PAXG:'PAXGUSDT',AVAX:'AVAXUSDT',DOT:'DOTUSDT',MATIC:'MATICUSDT',
+  LINK:'LINKUSDT',UNI:'UNIUSDT',LTC:'LTCUSDT',ATOM:'ATOMUSDT',NEAR:'NEARUSDT',
+  ADA:'ADAUSDT',DOGE:'DOGEUSDT',ARB:'ARBUSDT',OP:'OPUSDT',APT:'APTUSDT',
+  SUI:'SUIUSDT',INJ:'INJUSDT',FIL:'FILUSDT',ICP:'ICPUSDT',HBAR:'HBARUSDT',
+  VET:'VETUSDT',ETC:'ETCUSDT',BCH:'BCHUSDT',GRT:'GRTUSDT',AAVE:'AAVEUSDT',
+  MKR:'MKRUSDT',CRV:'CRVUSDT',LDO:'LDOUSDT',FET:'FETUSDT',SAND:'SANDUSDT',
+  MANA:'MANAUSDT',RUNE:'RUNEUSDT',FLOW:'FLOWUSDT',CHZ:'CHZUSDT',XTZ:'XTZUSDT',
+  DASH:'DASHUSDT',WAVES:'WAVESUSDT',ZIL:'ZILUSDT',FTM:'FTMUSDT',ALGO:'ALGOUSDT',
+  TRX:'TRXUSDT',XLM:'XLMUSDT',SHIB:'SHIBUSDT',PEPE:'PEPEUSDT',ZEC:'ZECUSDT',
+  NEO:'NEOUSDT',IMX:'IMXUSDT',ENS:'ENSUSDT',AR:'ARUSDT',KAVA:'KAVAUSDT',
+  TON:'TONUSDT',WIF:'WIFUSDT',BONK:'BONKUSDT',JUP:'JUPUSDT',TIA:'TIAUSDT',
+  SEI:'SEIUSDT',TAO:'TAOUSDT',STRK:'STRKUSDT',
+};
+const CG_ID = {
+  BTC:'bitcoin',ETH:'ethereum',SOL:'solana',XRP:'ripple',BNB:'binancecoin',
+  PAXG:'pax-gold',AVAX:'avalanche-2',DOT:'polkadot',MATIC:'matic-network',
+  LINK:'chainlink',UNI:'uniswap',LTC:'litecoin',ATOM:'cosmos',NEAR:'near',
+  ADA:'cardano',DOGE:'dogecoin',ARB:'arbitrum',OP:'optimism',APT:'aptos',
+  SUI:'sui',INJ:'injective-protocol',FIL:'filecoin',ICP:'internet-computer',
+  HBAR:'hedera-hashgraph',AAVE:'aave',MKR:'maker',FTM:'fantom',ALGO:'algorand',
+  TRX:'tron',XLM:'stellar',SHIB:'shiba-inu',TON:'the-open-network',
+};
+
+const G = {
+  anchor:'BTC', optType:'call',
+  surface:null, scaledSurface:null,
+  surfaceSource:'',
+  anchorHV:null, targetHV:null,
+  lastResult:null,
+  wsAtmIV:{},  // live ATM IV per anchor from WS
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   UI HELPERS
+═══════════════════════════════════════════════════════════════ */
+function setAnchor(a){ G.anchor=a; document.querySelectorAll('.ab').forEach(b=>b.classList.toggle('active',b.dataset.a===a)); }
+function setType(t){
+  G.optType=t;
+  document.getElementById('btn-call').classList.toggle('active',t==='call');
+  document.getElementById('btn-put').classList.toggle('active',t==='put');
+}
+let _stTimer;
+function setSt(msg,type='info'){
+  clearTimeout(_stTimer);
+  const el=document.getElementById('sbar');
+  el.style.display='block'; el.className='sbar '+type;
+  el.innerHTML=(type==='info')?`<span class="spin"></span>${msg}`:msg;
+}
+function clearSt(ms=0){ _stTimer=setTimeout(()=>{document.getElementById('sbar').style.display='none';},ms); }
+let _logLines=[];
+function log(html){
+  const el=document.getElementById('logbox'); el.style.display='block';
+  _logLines.push(html); if(_logLines.length>25) _logLines.shift();
+  el.innerHTML=_logLines.join('<br>'); el.scrollTop=el.scrollHeight;
+}
+function clearLog(){ _logLines=[]; const el=document.getElementById('logbox'); el.style.display='none'; el.innerHTML=''; }
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function setWsBadge(state,label){
+  const badge=document.getElementById('ws-badge');
+  if(!badge) return;
+  badge.innerHTML=`<span class="dot-ws${state==='on'?' connected':''}"></span>WS: ${label}`;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   LAYER 1 — DERIBIT WEBSOCKET
+   Returns array of {strike, expDays, iv, expiry, optType, underlying} or throws
+═══════════════════════════════════════════════════════════════ */
+function deribitWS(method, params, timeoutMs=14000){
+  return new Promise((resolve,reject)=>{
+    let ws, done=false, timer;
+    function finish(v,e){ if(done)return; done=true; clearTimeout(timer); try{ws&&ws.close();}catch(_){} e?reject(e):resolve(v); }
+    timer=setTimeout(()=>finish(null,new Error('WS timeout')), timeoutMs);
+    try{
+      ws=new WebSocket(DERIBIT_WS);
+      ws.onopen=()=>{
+        setWsBadge('on','connected');
+        ws.send(JSON.stringify({jsonrpc:'2.0',id:1,method,params}));
+      };
+      ws.onmessage=e=>{
+        try{
+          const d=JSON.parse(e.data);
+          if(d.error) finish(null,new Error('Deribit: '+d.error.message));
+          else if(d.result!==undefined) finish(d.result,null);
+        }catch(ex){finish(null,ex);}
+      };
+      ws.onerror=()=>finish(null,new Error('WS error'));
+      ws.onclose=e=>{ if(!done&&!e.wasClean) finish(null,new Error('WS closed')); };
+    }catch(ex){finish(null,ex);}
+  });
+}
+
+async function fetchSurfaceWS(ccy){
+  const result=await deribitWS('public/get_book_summary_by_currency',{currency:ccy,kind:'option'});
+  return parseDeribitResult(result);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   LAYER 2 — DERIBIT REST FALLBACK
+═══════════════════════════════════════════════════════════════ */
+async function fetchSurfaceREST(ccy){
+  const url=`${DERIBIT_REST}/public/get_book_summary_by_currency?currency=${ccy}&kind=option`;
+  const r=await Promise.race([
+    fetch(url).then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }),
+    new Promise((_,rej)=>setTimeout(()=>rej(new Error('REST timeout')),10000))
+  ]);
+  if(!r?.result) throw new Error('No result');
+  return parseDeribitResult(r.result);
+}
+
+function parseDeribitResult(result){
+  if(!Array.isArray(result)||!result.length) throw new Error('Empty result');
+  const now=Date.now(), rows=[];
+  for(const inst of result){
+    const iv=inst.mark_iv;
+    if(!iv||iv<=0||iv>600||!isFinite(iv)) continue;
+    const parts=inst.instrument_name.split('-');
+    if(parts.length!==4) continue;
+    const strike=parseFloat(parts[2]);
+    if(!strike||isNaN(strike)) continue;
+    const expDate=parseDDate(parts[1]);
+    if(!expDate) continue;
+    const expDays=(expDate-now)/86400000;
+    if(expDays<0.3||expDays>400) continue;
+    rows.push({strike,expDays,iv:iv/100,expiry:parts[1],optType:parts[3],
+               underlying:inst.underlying_price||0,instName:inst.instrument_name});
+  }
+  if(rows.length<8) throw new Error(`Too few valid options: ${rows.length}`);
+  return rows;
+}
+
+function parseDDate(s){
+  const M={JAN:0,FEB:1,MAR:2,APR:3,MAY:4,JUN:5,JUL:6,AUG:7,SEP:8,OCT:9,NOV:10,DEC:11};
+  const m=s.match(/^(\d{1,2})([A-Z]{3})(\d{2,4})$/);
+  if(!m) return null;
+  let yr=parseInt(m[3]); if(yr<100) yr+=2000;
+  const mon=M[m[2]]; if(mon===undefined) return null;
+  return new Date(yr,mon,parseInt(m[1]),8,0,0).getTime();
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   LAYER 3 — SVI SYNTHETIC SURFACE
+   Generates a realistic parametric surface when Deribit is unreachable.
+   SVI total variance: w(k) = a + b*(rho*(k-m) + sqrt((k-m)^2 + sigma^2))
+   We scale 'a' so that ATM matches the known/DVOL level.
+═══════════════════════════════════════════════════════════════ */
+function sviIV(k, T, p, atmScaleFactor=1){
+  const bRho = p.b*p.rho, bSig=p.b*p.sigma;
+  // adjust 'a' to hit desired ATM vol
+  const wAtm0 = p.a + p.b*(p.rho*(0-p.m)+Math.sqrt((0-p.m)**2+p.sigma**2));
+  const atmTargetVar = (p.atmBase*atmScaleFactor)**2 * T;
+  const aAdj = p.a + (atmTargetVar - wAtm0);
+  const w = Math.max(1e-6, aAdj + p.b*(p.rho*(k-p.m)+Math.sqrt((k-p.m)**2+p.sigma**2)));
+  // apply mild term structure (higher IV for shorter expiries = backwardation typical in crypto)
+  const termFactor = Math.pow(30/Math.max(T*365,1), p.termPow);
+  return Math.sqrt(w/T) * termFactor;
+}
+
+function buildSyntheticSurface(ccy, atmIVOverride=null){
+  const p=SVI_PARAMS[ccy]||SVI_PARAMS.BTC;
+  const atmIV=atmIVOverride||DVOL_TYPICAL[ccy]||0.65;
+  const atmScaleFactor=atmIV/(p.atmBase||0.65);
+
+  // expiry buckets
+  const expBuckets=[3,7,14,21,30,45,60,90,120,180,365];
+  // moneyness range: K/F from 0.5 to 2.5
+  const mBuckets=[.50,.55,.60,.65,.70,.75,.80,.85,.90,.925,.95,.975,1.0,1.025,1.05,1.075,1.10,1.15,1.20,1.30,1.40,1.60,1.80,2.00,2.50];
+
+  const rows=[];
+  for(const T_days of expBuckets){
+    const T=T_days/365;
+    for(const mRatio of mBuckets){
+      const k=Math.log(mRatio);
+      const iv=sviIV(k,T,p,atmScaleFactor);
+      if(iv>0&&iv<5&&isFinite(iv)){
+        rows.push({
+          strike:mRatio*1000, // placeholder; will be rescaled to actual spot
+          expDays:T_days, iv:Math.min(iv,3.5),
+          expiry:`SYN${T_days}d`, optType:'C',
+          underlying:1000, // placeholder
+          _mRatio:mRatio, // store moneyness for rescaling
+          _synthetic:true,
+        });
+      }
+    }
+  }
+  return rows;
+}
+
+/* Rescale synthetic surface to actual spot price */
+function rescaleSynthSurface(surface, spot){
+  return surface.map(r=>({
+    ...r,
+    strike: r._synthetic ? r._mRatio*spot : r.strike,
+    underlying: r._synthetic ? spot : r.underlying,
+  }));
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SURFACE ORCHESTRATOR — tries all 3 layers in order
+═══════════════════════════════════════════════════════════════ */
+async function getSurface(ccy, spotForSynth){
+  // Layer 1: WebSocket
+  try{
+    log(`<span style="color:var(--aqua)">→ WS ${ccy} surface…</span>`);
+    setSt(`Connecting WebSocket → Deribit ${ccy}…`);
+    const rows=await fetchSurfaceWS(ccy);
+    log(`<span style="color:var(--lime)">✓ WS: ${rows.length} options</span>`);
+    setWsBadge('on','live');
+    return {rows, source:'live', label:'Deribit WS Live'};
+  }catch(e1){
+    log(`<span style="color:var(--gold)">WS failed: ${e1.message}</span>`);
+    setWsBadge('off','failed');
+  }
+
+  // Layer 2: REST
+  try{
+    log(`<span style="color:var(--gold)">→ REST ${ccy} surface…</span>`);
+    setSt(`WebSocket failed — trying REST…`,'warn');
+    const rows=await fetchSurfaceREST(ccy);
+    log(`<span style="color:var(--lime)">✓ REST: ${rows.length} options</span>`);
+    return {rows, source:'rest', label:'Deribit REST'};
+  }catch(e2){
+    log(`<span style="color:var(--gold)">REST failed: ${e2.message}</span>`);
+  }
+
+  // Try to get ATM level from Deribit hist_vol for SVI calibration
+  let atmIV=null;
+  try{
+    const hvWS=await deribitWS('public/get_historical_volatility',{currency:ccy},6000);
+    if(Array.isArray(hvWS)&&hvWS.length){
+      atmIV=hvWS[hvWS.length-1][1]/100;
+      log(`<span style="color:var(--gold)">DVOL ${ccy}: ${(atmIV*100).toFixed(1)}% (for SVI calibration)</span>`);
+    }
+  }catch(_){}
+
+  // Layer 3: SVI synthetic
+  log(`<span style="color:var(--iris)">→ SVI synthetic surface for ${ccy}</span>`);
+  setSt(`Using SVI synthetic surface (Deribit unreachable)`,'warn');
+  let rows=buildSyntheticSurface(ccy, atmIV);
+  rows=rescaleSynthSurface(rows, spotForSynth||1000);
+  log(`<span style="color:var(--lime)">✓ SVI: ${rows.length} synthetic points</span>`);
+  return {rows, source:'synthetic', label:'SVI Synthetic'};
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SPOT PRICE
+═══════════════════════════════════════════════════════════════ */
+async function fetchSpot(ticker){
+  if(BN_SYM[ticker]){
+    try{
+      const r=await Promise.race([
+        fetch(`${BN_BASE}/ticker/price?symbol=${BN_SYM[ticker]}`).then(r=>r.json()),
+        new Promise((_,rej)=>setTimeout(()=>rej(),5000))
+      ]);
+      if(r?.price) return parseFloat(r.price);
+    }catch(_){}
+  }
+  const id=CG_ID[ticker];
+  if(id){
+    try{
+      const r=await Promise.race([
+        fetch(`${CG_BASE}/simple/price?ids=${id}&vs_currencies=usd`).then(r=>r.json()),
+        new Promise((_,rej)=>setTimeout(()=>rej(),8000))
+      ]);
+      if(r?.[id]?.usd) return r[id].usd;
+    }catch(_){}
+  }
+  // Try Deribit index price as last resort
+  try{
+    const r=await deribitWS('public/get_index_price',{index_name:`${ticker.toLowerCase()}_usd`},6000);
+    if(r?.index_price) return r.index_price;
+  }catch(_){}
+  return null;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   REALIZED HV (30-day annualized)
+═══════════════════════════════════════════════════════════════ */
+async function fetchHV(ticker){
+  let prices=null;
+  // Binance
+  if(BN_SYM[ticker]){
+    try{
+      const r=await Promise.race([
+        fetch(`${BN_BASE}/klines?symbol=${BN_SYM[ticker]}&interval=1d&limit=33`).then(r=>r.json()),
+        new Promise((_,rej)=>setTimeout(()=>rej(),8000))
+      ]);
+      if(Array.isArray(r)&&r.length>=20) prices=r.map(k=>parseFloat(k[4]));
+    }catch(_){}
+  }
+  // CoinGecko
+  if(!prices){
+    const id=CG_ID[ticker];
+    if(id){
+      try{
+        const r=await Promise.race([
+          fetch(`${CG_BASE}/coins/${id}/market_chart?vs_currency=usd&days=33&interval=daily`).then(r=>r.json()),
+          new Promise((_,rej)=>setTimeout(()=>rej(),9000))
+        ]);
+        if(r?.prices?.length>=20) prices=r.prices.map(p=>p[1]);
+      }catch(_){}
+    }
+  }
+  // Deribit historical_volatility for anchors
+  if(!prices){
+    try{
+      const r=await deribitWS('public/get_historical_volatility',{currency:ticker},6000);
+      if(Array.isArray(r)&&r.length) return r[r.length-1][1]/100;
+    }catch(_){}
+  }
+  if(!prices||prices.length<2) return null;
+  const n=Math.min(prices.length-1,30);
+  const rets=[];
+  for(let i=prices.length-n;i<prices.length;i++) rets.push(Math.log(prices[i]/prices[i-1]));
+  const mu=rets.reduce((a,b)=>a+b,0)/rets.length;
+  const v=rets.reduce((s,r)=>s+(r-mu)**2,0)/(rets.length-1);
+  return Math.sqrt(v*252);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SURFACE SCALING & INTERPOLATION
+═══════════════════════════════════════════════════════════════ */
+function scaleSurface(rows, anchorHV, targetHV){
+  const ratio=targetHV/anchorHV;
+  return rows.map(r=>({...r, ivScaled:Math.max(0.01, r.iv*ratio)}));
+}
+
+function interpolateIV(scaled, S, K, T_days){
+  if(!scaled?.length) return null;
+  const lm=Math.log(K/S);
+  const expiries=[...new Set(scaled.map(r=>r.expDays))].sort((a,b)=>a-b);
+  const [tLo,tHi]=bracket(expiries,T_days);
+
+  function smileAt(tgt){
+    const tol=Math.max(3,tgt*0.12);
+    const band=scaled.filter(r=>Math.abs(r.expDays-tgt)<=tol);
+    if(!band.length) return null;
+    const refS=band.find(r=>r.underlying>0)?.underlying||S;
+    const pts=band
+      .map(r=>({m:Math.log(r.strike/refS),iv:r.ivScaled}))
+      .filter(p=>isFinite(p.m)&&p.iv>0&&p.iv<5)
+      .sort((a,b)=>a.m-b.m);
+    if(pts.length<2) return null;
+    // deduplicate
+    const dd=[]; pts.forEach(p=>{if(!dd.length||Math.abs(p.m-dd[dd.length-1].m)>0.004) dd.push({...p}); else dd[dd.length-1].iv=(dd[dd.length-1].iv+p.iv)/2;});
+    return linInterp(dd.map(p=>p.m), dd.map(p=>p.iv), lm);
+  }
+
+  if(tLo===tHi) return smileAt(tLo);
+  const ivLo=smileAt(tLo), ivHi=smileAt(tHi);
+  if(!ivLo&&!ivHi) return null;
+  if(!ivLo) return ivHi; if(!ivHi) return ivLo;
+  const sqLo=Math.sqrt(tLo),sqHi=Math.sqrt(tHi),sqT=Math.sqrt(T_days);
+  const w=(sqT-sqLo)/(sqHi-sqLo);
+  return ivLo*(1-w)+ivHi*w;
+}
+
+function bracket(arr,v){
+  if(v<=arr[0]) return [arr[0],arr[0]];
+  if(v>=arr[arr.length-1]) return [arr[arr.length-1],arr[arr.length-1]];
+  for(let i=0;i<arr.length-1;i++) if(v>=arr[i]&&v<=arr[i+1]) return [arr[i],arr[i+1]];
+  return [arr[arr.length-2],arr[arr.length-1]];
+}
+function linInterp(xs,ys,x){
+  if(!xs.length) return null;
+  if(x<=xs[0]) return ys[0];
+  if(x>=xs[xs.length-1]) return ys[ys.length-1];
+  for(let i=0;i<xs.length-1;i++){
+    if(x>=xs[i]&&x<=xs[i+1]){ const w=(x-xs[i])/(xs[i+1]-xs[i]); return ys[i]*(1-w)+ys[i+1]*w; }
+  }
+  return ys[ys.length-1];
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   BLACK-SCHOLES
+═══════════════════════════════════════════════════════════════ */
+function ncdf(x){
+  const a1=.254829592,a2=-.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429,p=.3275911;
+  const s=x<0?-1:1,t=1/(1+p*Math.abs(x)/Math.SQRT2);
+  return .5*(1+s*(1-t*(a1+t*(a2+t*(a3+t*(a4+t*a5))))*Math.exp(-x*x/2)));
+}
+function npdf(x){ return Math.exp(-x*x/2)/Math.sqrt(2*Math.PI); }
+
+function bsPrice(S,K,T,r,sig,type){
+  if(T<=0) return type==='call'?Math.max(0,S-K):Math.max(0,K-S);
+  const sq=Math.sqrt(T);
+  const d1=(Math.log(S/K)+(r+.5*sig*sig)*T)/(sig*sq), d2=d1-sig*sq;
+  return type==='call'
+    ? S*ncdf(d1)-K*Math.exp(-r*T)*ncdf(d2)
+    : K*Math.exp(-r*T)*ncdf(-d2)-S*ncdf(-d1);
+}
+function bsG(S,K,T,r,sig,type){
+  if(T<1e-6) return{delta:0,gamma:0,theta:0,vega:0,rho:0};
+  const sq=Math.sqrt(T);
+  const d1=(Math.log(S/K)+(r+.5*sig*sig)*T)/(sig*sq), d2=d1-sig*sq;
+  const nd1=ncdf(d1),nd2=ncdf(d2),np=npdf(d1),df=Math.exp(-r*T);
+  const gam=np/(S*sig*sq), vega=S*np*sq/100;
+  let delta,theta,rho;
+  if(type==='call'){ delta=nd1; theta=(-S*np*sig/(2*sq)-r*K*df*nd2)/365; rho=K*T*df*nd2/100; }
+  else { delta=nd1-1; theta=(-S*np*sig/(2*sq)+r*K*df*ncdf(-d2))/365; rho=-K*T*df*ncdf(-d2)/100; }
+  return{delta,gamma:gam,theta,vega,rho};
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MAIN PRICER
+═══════════════════════════════════════════════════════════════ */
+async function runPricer(){
+  const ticker=document.getElementById('ticker').value.trim().toUpperCase();
+  if(!ticker){ setSt('Enter a ticker.','err'); return; }
+
+  let spot     = parseFloat(document.getElementById('spot').value)||0;
+  let strike   = parseFloat(document.getElementById('strike').value)||0;
+  const expDays= parseFloat(document.getElementById('expiry').value)||30;
+  const rfr    = parseFloat(document.getElementById('rfr').value)/100||.05;
+  const notional= parseFloat(document.getElementById('notional').value)||10000;
+  const manTHV = parseFloat(document.getElementById('tgt-hv').value)||0;
+  const manAHV = parseFloat(document.getElementById('anc-hv').value)||0;
+
+  document.getElementById('results').style.display='none';
+  document.getElementById('empty').style.display='none';
+  document.getElementById('btn-csv').style.display='none';
+  document.getElementById('btn-xls').style.display='none';
+  const btn=document.getElementById('run-btn'); btn.disabled=true;
+  clearLog();
+
+  try{
+    // ── Spot price ──
+    setSt('Fetching spot price…');
+    if(!spot){
+      spot=await fetchSpot(ticker);
+      if(!spot&&ticker===G.anchor) spot=await fetchSpot(G.anchor);
+    }
+    if(!spot){ setSt(`Could not fetch spot for ${ticker}. Enter manually.`,'err'); btn.disabled=false; return; }
+    if(!strike) { strike=Math.round(spot); document.getElementById('strike').value=strike; }
+
+    // ── Surface ──
+    const {rows, source, label}=await getSurface(G.anchor, spot);
+    G.surface=rows; G.surfaceSource=source;
+
+    // Show ATM IV on anchor buttons
+    const anchorSpot=rows.find(r=>r.underlying>0)?.underlying||spot;
+    const atmIV=interpolateIV(rows.map(r=>({...r,ivScaled:r.iv})),anchorSpot,anchorSpot,30);
+    const aivEl=document.getElementById('aiv-'+G.anchor); if(atmIV&&aivEl) aivEl.textContent=(atmIV*100).toFixed(0)+'% ATM';
+
+    // ── HV ──
+    setSt('Computing realized volatility…');
+    let anchorHV=manAHV>0?manAHV/100:null;
+    let targetHV=manTHV>0?manTHV/100:null;
+
+    if(!anchorHV){
+      log(`<span style="color:var(--c2)">→ HV ${G.anchor}…</span>`);
+      anchorHV=await fetchHV(G.anchor);
+      if(!anchorHV||anchorHV<=0){ anchorHV=DVOL_TYPICAL[G.anchor]||.6; log(`<span style="color:var(--gold)">${G.anchor} HV fallback: ${(anchorHV*100).toFixed(0)}%</span>`); }
+      else log(`<span style="color:var(--lime)">✓ ${G.anchor} 30d HV: ${(anchorHV*100).toFixed(1)}%</span>`);
+    }
+
+    if(!targetHV){
+      if(ticker===G.anchor){ targetHV=anchorHV; }
+      else{
+        await sleep(300);
+        log(`<span style="color:var(--c2)">→ HV ${ticker}…</span>`);
+        targetHV=await fetchHV(ticker);
+        if(!targetHV||targetHV<=0){ targetHV=anchorHV*1.5; log(`<span style="color:var(--gold)">${ticker} HV not found — using ${G.anchor}×1.5</span>`); }
+        else log(`<span style="color:var(--lime)">✓ ${ticker} 30d HV: ${(targetHV*100).toFixed(1)}%</span>`);
+      }
+    }
+    G.anchorHV=anchorHV; G.targetHV=targetHV;
+
+    // ── Scale ──
+    const ratio=targetHV/anchorHV;
+    G.scaledSurface=scaleSurface(G.surface,anchorHV,targetHV);
+    log(`<span style="color:var(--aqua)">→ vol ratio ${ratio.toFixed(3)}× → surface scaled</span>`);
+
+    // ── Interpolate ──
+    let iv=interpolateIV(G.scaledSurface,spot,strike,expDays);
+    if(!iv||!isFinite(iv)||iv<0.005){
+      const all=G.scaledSurface.map(r=>r.ivScaled).filter(v=>v>0&&v<5).sort((a,b)=>a-b);
+      iv=all[Math.floor(all.length/2)]||targetHV;
+      log(`<span style="color:var(--gold)">IV interp fallback → ${(iv*100).toFixed(1)}%</span>`);
+    }
+    log(`<span style="color:var(--lime)">✓ IV = ${(iv*100).toFixed(2)}% (K=${strike.toLocaleString()}, T=${expDays}d)</span>`);
+
+    // ── Price ──
+    const T=expDays/365;
+    const price=bsPrice(spot,strike,T,rfr,iv,G.optType);
+    const greeks=bsG(spot,strike,T,rfr,iv,G.optType);
+    const contracts=notional/spot;
+
+    G.lastResult={ticker,anchor:G.anchor,spot,K:strike,T,expDays,rfr,iv,
+      anchorHV,targetHV,volRatio:ratio,price,greeks,notional,contracts,
+      optType:G.optType,source,label,surfaceLen:rows.length};
+
+    renderAll(G.lastResult);
+    setSt(`✓ Priced — surface: ${label}`,'ok');
+    clearSt(5000);
+    document.getElementById('results').style.display='block';
+    document.getElementById('btn-csv').style.display='';
+    document.getElementById('btn-xls').style.display='';
+    const fb=document.getElementById('fetch-badge');
+    fb.style.display=''; fb.textContent=`${new Date().toLocaleTimeString()}`;
+    setTimeout(clearLog,8000);
+
+  }catch(err){
+    setSt(`Error: ${err.message}`,'err');
+    document.getElementById('empty').style.display='block';
+    log(`<span style="color:var(--ember)">✗ ${err.stack||err.message}</span>`);
+  }finally{ btn.disabled=false; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   RENDER
+═══════════════════════════════════════════════════════════════ */
+const usd=n=>typeof n==='number'?'$'+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):'—';
+const pct=n=>typeof n==='number'?(n*100).toFixed(1)+'%':'—';
+const pct2=n=>typeof n==='number'?(n*100).toFixed(2)+'%':'—';
+const f=( n,d=4)=>typeof n==='number'?n.toFixed(d):'—';
+
+function renderAll(p){
+  const{ticker,anchor,spot,K,T,expDays,iv,anchorHV,targetHV,volRatio,
+    price,greeks,notional,contracts,optType,source,label,surfaceLen}=p;
+  const col=ANCHOR_COL[anchor]||'#00e5c8';
+  const isSelf=ticker===anchor;
+  const srcChip=source==='live'?`<span class="src-chip src-live">● Deribit WS Live</span>`:
+                source==='rest'?`<span class="src-chip src-fallback">● Deribit REST</span>`:
+                                `<span class="src-chip src-synth">● SVI Synthetic</span>`;
+
+  // Header
+  document.getElementById('rh-title').textContent=`${ticker} ${K.toLocaleString('en-US')} ${optType.toUpperCase()} · ${expDays}d`;
+  document.getElementById('rh-sub').innerHTML=
+    `<span style="color:${col}">${anchor}</span> surface${isSelf?'':', scaled ×'+f(volRatio,3)} &nbsp;·&nbsp; ${srcChip} &nbsp;·&nbsp; ${surfaceLen} quotes`;
+  document.getElementById('rh-r').innerHTML=`
+    <div class="rh-stat"><span class="rh-stat-lbl">${anchor} 30d HV</span><span class="rh-stat-val" style="color:${col}">${pct(anchorHV)}</span></div>
+    <div class="rh-stat"><span class="rh-stat-lbl">${ticker} 30d HV</span><span class="rh-stat-val" style="color:var(--aqua)">${pct(targetHV)}</span></div>
+    <div class="rh-stat"><span class="rh-stat-lbl">Ratio</span><span class="rh-stat-val" style="color:var(--gold)">${f(volRatio,3)}×</span></div>
+    <div class="rh-stat"><span class="rh-stat-lbl">Impl. Vol</span><span class="rh-stat-val" style="color:var(--lime)">${pct2(iv)}</span></div>
+  `;
+
+  // Vol explain
+  const intrinsic=optType==='call'?Math.max(0,spot-K):Math.max(0,K-spot);
+  const itm=intrinsic>0;
+  document.getElementById('vol-box').innerHTML=
+    `<strong>Vol scaling:</strong> ${anchor} surface (${label}, ${surfaceLen} pts) → every IV ×`+
+    `<span class="hl"> ${f(volRatio,4)}</span> `+
+    `(${ticker} HV ${pct(targetHV)} ÷ ${anchor} HV ${pct(anchorHV)}). `+
+    `Interpolated at K=${K.toLocaleString()}, T=${expDays}d → `+
+    `<span class="hl">${pct2(iv)}</span>. `+
+    `Strike is <span class="${itm?'ok':''}" style="${!itm?'color:var(--ember)':''}">${itm?'in-the-money':'out-of-the-money'}</span> vs spot ${usd(spot)}.`;
+
+  // Metrics
+  const timeVal=price-intrinsic;
+  document.getElementById('metrics').innerHTML=`
+    <div class="mc"><div class="mc-l">Option Price</div><div class="mc-v" style="color:var(--gold)">${usd(price)}</div><div class="mc-s">per ${ticker}</div></div>
+    <div class="mc"><div class="mc-l">Total Cost</div><div class="mc-v">${usd(price*contracts)}</div><div class="mc-s">${f(contracts,4)} contracts @ $${notional.toLocaleString()}</div></div>
+    <div class="mc"><div class="mc-l">Implied Vol</div><div class="mc-v" style="color:var(--aqua)">${pct2(iv)}</div><div class="mc-s">scaled from ${anchor}</div></div>
+    <div class="mc"><div class="mc-l">Intrinsic</div><div class="mc-v" style="color:${itm?'var(--lime)':'var(--ember)'}">${usd(intrinsic)}</div><div class="mc-s">${itm?'ITM':'OTM'}</div></div>
+    <div class="mc"><div class="mc-l">Time Value</div><div class="mc-v">${usd(timeVal)}</div><div class="mc-s">${expDays}d remaining</div></div>
+    <div class="mc"><div class="mc-l">Break-Even</div><div class="mc-v" style="color:var(--gold)">${usd(optType==='call'?K+price:K-price)}</div><div class="mc-s">at expiry</div></div>
+  `;
+
+  // Greeks
+  document.getElementById('greeks').innerHTML=`
+    <div class="gk"><div class="gk-g" style="color:var(--sky)">Δ</div><div class="gk-v">${f(greeks.delta,4)}</div><div class="gk-l">Delta</div></div>
+    <div class="gk"><div class="gk-g" style="color:var(--lime)">Γ</div><div class="gk-v">${f(greeks.gamma,5)}</div><div class="gk-l">Gamma</div></div>
+    <div class="gk"><div class="gk-g" style="color:var(--ember)">Θ</div><div class="gk-v">${f(greeks.theta,4)}</div><div class="gk-l">Theta/day</div></div>
+    <div class="gk"><div class="gk-g" style="color:var(--aqua)">V</div><div class="gk-v">${f(greeks.vega,4)}</div><div class="gk-l">Vega/1%</div></div>
+    <div class="gk"><div class="gk-g" style="color:var(--iris)">ρ</div><div class="gk-v">${f(greeks.rho,4)}</div><div class="gk-l">Rho/1%</div></div>
+  `;
+
+  renderSmile(p,col); renderPnL(p,col);
+  renderSurface3D(p); renderGreeksChart(p,col); renderTerm(p,col);
+  renderTable(p);
+}
+
+/* ── Plotly helpers ── */
+function DL(extra={}){return{
+  paper_bgcolor:'transparent',plot_bgcolor:'transparent',
+  font:{color:'#9aafc8',family:'JetBrains Mono,monospace',size:9},
+  xaxis:{gridcolor:'#1a2030',zerolinecolor:'#1e2535',...(extra.xa||{})},
+  yaxis:{gridcolor:'#1a2030',zerolinecolor:'#1e2535',...(extra.ya||{})},
+  margin:{t:14,b:44,l:58,r:14},
+  showlegend:true,
+  legend:{bgcolor:'rgba(11,13,20,.85)',bordercolor:'#1e2535',borderwidth:1,font:{size:9}},
+  ...Object.fromEntries(Object.entries(extra).filter(([k])=>!['xa','ya'].includes(k))),
+};}
+const PC={responsive:true,displayModeBar:false};
+
+/* ── Smile ── */
+function renderSmile(p,col){
+  const{spot,K,iv,expDays,anchor,ticker}=p;
+  const tol=Math.max(4,expDays*.12);
+  const mkPts=(arr,refS)=>{
+    const pts=arr.filter(r=>Math.abs(r.expDays-expDays)<=tol)
+      .map(r=>({m:(r.strike/(r.underlying||refS))*100,iv:(r.ivScaled||r.iv)*100}))
+      .filter(p=>p.m>40&&p.m<250&&p.iv>0&&p.iv<300).sort((a,b)=>a.m-b.m);
+    const dd=[]; pts.forEach(p=>{if(!dd.length||Math.abs(p.m-dd[dd.length-1].m)>.6)dd.push(p);});
+    return dd;
+  };
+  const raw=G.surface.map(r=>({...r,ivScaled:r.iv}));
+  const sc =G.scaledSurface;
+  const refS=sc.find(r=>r.underlying>0)?.underlying||spot;
+  const rawPts=mkPts(raw,refS), scPts=mkPts(sc,refS);
+  Plotly.react('ch-smile',[
+    {x:rawPts.map(p=>p.m),y:rawPts.map(p=>p.iv),mode:'lines',name:`${anchor} raw`,line:{color:'rgba(90,110,138,.6)',width:1.5,dash:'dot'}},
+    {x:scPts.map(p=>p.m), y:scPts.map(p=>p.iv), mode:'lines+markers',name:`${ticker} scaled`,line:{color:col,width:2.5},marker:{size:3,color:col}},
+    {x:[K/refS*100],y:[iv*100],mode:'markers',name:'Your strike',marker:{size:11,color:'#fff',symbol:'diamond',line:{color:col,width:2}}},
+  ],{...DL({xa:{title:'Moneyness (K/S %)'},ya:{title:'IV (%)'}})}),PC;
+  Plotly.react('ch-smile',[
+    {x:rawPts.map(p=>p.m),y:rawPts.map(p=>p.iv),mode:'lines',name:`${anchor} raw`,line:{color:'rgba(90,110,138,.6)',width:1.5,dash:'dot'}},
+    {x:scPts.map(p=>p.m), y:scPts.map(p=>p.iv), mode:'lines+markers',name:`${ticker} scaled`,line:{color:col,width:2.5},marker:{size:3,color:col}},
+    {x:[K/refS*100],y:[iv*100],mode:'markers',name:'Your strike',marker:{size:11,color:'#fff',symbol:'diamond',line:{color:col,width:2}}},
+  ],{...DL(),xaxis:{...DL().xaxis,title:'Moneyness (K/S %)'},yaxis:{...DL().yaxis,title:'IV (%)'}},PC);
+}
+
+/* ── P&L ── */
+function renderPnL(p,col){
+  const{spot,K,T,iv,rfr,price,optType,ticker}=p;
+  const lo=spot*.42,hi=spot*1.85,step=(hi-lo)/110;
+  const ss=[],bsms=[],intrs=[];
+  for(let s=lo;s<=hi;s+=step){
+    ss.push(s);
+    bsms.push(bsPrice(s,K,T,rfr,iv,optType)-price);
+    intrs.push((optType==='call'?Math.max(0,s-K):Math.max(0,K-s))-price);
+  }
+  Plotly.react('ch-pnl',[
+    {x:intrs,y:ss,mode:'lines',name:'At expiry',type:'scatter',orientation:'h',line:{color:'rgba(90,110,138,.55)',width:1.5,dash:'dot'}},
+    {x:bsms, y:ss,mode:'lines',name:'Current BSM',type:'scatter',orientation:'h',line:{color:col,width:2.5}},
+    {x:[0],y:[spot],mode:'markers',name:'Spot',marker:{size:9,color:'#fff',symbol:'line-ew-open',line:{width:2,color:'#fff'}},orientation:'h'},
+  ],{...DL(),xaxis:{...DL().xaxis,title:'P&L ($)',zeroline:true,zerolinecolor:'#26304a',zerolinewidth:1},
+    yaxis:{...DL().yaxis,title:`${ticker} Spot ($)`},
+    shapes:[{type:'line',x0:0,x1:0,y0:lo,y1:hi,line:{color:'#26304a',width:1}}]},PC);
+}
+
+/* ── 3D Surface ── */
+function renderSurface3D(p){
+  const{spot}=p;
+  const expBuckets=[7,14,30,60,90,180,365].filter(t=>G.scaledSurface.some(r=>Math.abs(r.expDays-t)<=7));
+  if(expBuckets.length<2) return;
+  const mB=Array.from({length:21},(_,i)=>55+i*5);
+  const z=expBuckets.map(t=>mB.map(m=>{const iv=interpolateIV(G.scaledSurface,spot,spot*(m/100),t);return iv?iv*100:null;}));
+  Plotly.react('ch-surf',[{
+    z,x:mB,y:expBuckets,type:'surface',
+    colorscale:[[0,'#0b0d14'],[.2,'#0a2550'],[.45,'#00e5c8'],[.7,'#f5c842'],[1,'#ff6b35']],
+    contours:{z:{show:true,usecolormap:true,project:{z:true}}},
+    opacity:.93,colorbar:{thickness:8,len:.6,tickfont:{size:8,color:'#5a6e8a'}},
+  }],{
+    scene:{
+      xaxis:{title:'Moneyness (%)',gridcolor:'#1a2030',color:'#5a6e8a'},
+      yaxis:{title:'Expiry (days)',gridcolor:'#1a2030',color:'#5a6e8a'},
+      zaxis:{title:'IV (%)',gridcolor:'#1a2030',color:'#5a6e8a'},
+      bgcolor:'#0b0d14',camera:{eye:{x:1.6,y:-1.4,z:.9}},
+    },
+    margin:{t:0,b:0,l:0,r:0},paper_bgcolor:'transparent',
+  },PC);
+}
+
+/* ── Greeks ── */
+function renderGreeksChart(p,col){
+  const{spot,K,T,iv,rfr,optType}=p;
+  const lo=spot*.48,hi=spot*1.65,step=(hi-lo)/100;
+  const ss=[],dl=[],gm=[],vg=[],th=[];
+  for(let s=lo;s<=hi;s+=step){
+    ss.push(s);const g=bsG(s,K,T,rfr,iv,optType);
+    dl.push(g.delta);gm.push(g.gamma*spot);vg.push(g.vega);th.push(g.theta);
+  }
+  Plotly.react('ch-greeks',[
+    {x:ss,y:dl,mode:'lines',name:'Δ Delta',line:{color:col,width:2.5}},
+    {x:ss,y:gm,mode:'lines',name:'Γ×S Gamma',line:{color:'#b8ff47',width:1.5,dash:'dot'}},
+    {x:ss,y:vg,mode:'lines',name:'V Vega/1%',line:{color:'#00e5c8',width:1.5}},
+    {x:ss,y:th,mode:'lines',name:'Θ Theta/day',line:{color:'#ff6b35',width:1.5,dash:'dash'}},
+    {x:[spot],y:[0],mode:'markers',name:'Spot',marker:{size:9,color:'#fff',symbol:'line-ew-open',line:{width:2,color:'#fff'}}},
+  ],{...DL(),xaxis:{...DL().xaxis,title:'Spot ($)'},yaxis:{...DL().yaxis,title:'Greek value'},
+    shapes:[{type:'line',x0:spot,x1:spot,y0:0,y1:1,yref:'paper',line:{color:'rgba(200,220,240,.15)',width:1,dash:'dot'}}]},PC);
+}
+
+/* ── Term structure ── */
+function renderTerm(p,col){
+  const{spot,anchor}=p;
+  const exps=[...new Set(G.scaledSurface.map(r=>r.expDays))].sort((a,b)=>a-b);
+  const sc=[],raw=[];
+  for(const t of exps){
+    const ivS=interpolateIV(G.scaledSurface,spot,spot,t);
+    const ivR=interpolateIV(G.surface.map(r=>({...r,ivScaled:r.iv})),spot,spot,t);
+    if(ivS) sc.push({t,iv:ivS*100});
+    if(ivR) raw.push({t,iv:ivR*100});
+  }
+  Plotly.react('ch-term',[
+    {x:raw.map(p=>p.t),y:raw.map(p=>p.iv),mode:'lines+markers',name:`${anchor} ATM raw`,
+     line:{color:'rgba(90,110,138,.6)',width:1.5,dash:'dot'},marker:{size:5}},
+    {x:sc.map(p=>p.t), y:sc.map(p=>p.iv),mode:'lines+markers',name:'Target ATM scaled',
+     line:{color:col,width:2.5},marker:{size:6,color:col}},
+  ],{...DL(),xaxis:{...DL().xaxis,title:'Expiry (days)'},yaxis:{...DL().yaxis,title:'ATM IV (%)'}},PC);
+}
+
+/* ── Vol table ── */
+function renderTable(p){
+  const{spot,K}=p;
+  const TB=[7,14,30,60,90,180,365];
+  const MB=[70,80,85,90,95,100,105,110,115,120,130,150];
+  document.getElementById('vt-head').innerHTML=
+    `<tr><th>Strike</th>${TB.map(t=>`<th>${t}d</th>`).join('')}</tr>`;
+  const tb=document.getElementById('vt-body'); tb.innerHTML='';
+  for(const m of MB){
+    const Kval=spot*(m/100);
+    const tr=document.createElement('tr');
+    if(m===100) tr.className='atm-row';
+    else if(Math.abs(Kval-K)/K<.03) tr.className='sel-row';
+    let cells=`<td>${m}% · ${usd(Kval)}</td>`;
+    for(const t of TB){
+      const iv=interpolateIV(G.scaledSurface,spot,Kval,t);
+      const avail=G.scaledSurface.some(r=>Math.abs(r.expDays-t)<=7);
+      if(!iv||!avail){ cells+=`<td><span style="color:var(--c3)">—</span></td>`; continue; }
+      const pv=iv*100;
+      const cl=pv<40?'iv-lo':pv<80?'iv-md':pv<120?'iv-hi':'iv-xh';
+      cells+=`<td><span class="${cl}">${pv.toFixed(1)}%</span></td>`;
+    }
+    tr.innerHTML=cells; tb.appendChild(tr);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   EXPORT
+═══════════════════════════════════════════════════════════════ */
+function doExportCSV(){
+  if(!G.lastResult) return;
+  const p=G.lastResult;
+  const TB=[7,14,30,60,90,180,365],MB=[70,80,85,90,95,100,105,110,115,120,130,150];
+  let csv=`Crypto Option Pricer\nTicker,${p.ticker}\nAnchor,${p.anchor}\nSource,${p.label}\n`;
+  csv+=`Spot,${p.spot}\nStrike,${p.K}\nExpiry,${p.expDays}\nType,${p.optType}\n`;
+  csv+=`IV,${p.iv}\nPrice,${p.price}\nDelta,${p.greeks.delta}\nGamma,${p.greeks.gamma}\n`;
+  csv+=`Theta,${p.greeks.theta}\nVega,${p.greeks.vega}\nRho,${p.greeks.rho}\n\n`;
+  csv+=`Vol Surface\nStrike%,${TB.map(t=>t+'d').join(',')}\n`;
+  for(const m of MB){
+    const row=[`${m}%`];
+    for(const t of TB){const iv=interpolateIV(G.scaledSurface,p.spot,p.spot*(m/100),t);row.push(iv?((iv*100).toFixed(2)):'');}
+    csv+=row.join(',')+'\n';
+  }
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download=`option_${p.ticker}_${Date.now()}.csv`; a.click();
+}
+function doExportXLS(){
+  if(!G.lastResult) return;
+  const p=G.lastResult;
+  const TB=[7,14,30,60,90,180,365],MB=[70,80,85,90,95,100,105,110,115,120,130,150];
+  const wb=XLSX.utils.book_new();
+  const sum=[['Crypto Option Pricer'],['Ticker',p.ticker],['Anchor',p.anchor],['Source',p.label],
+    ['Spot',p.spot],['Strike',p.K],['Expiry',p.expDays],['Type',p.optType],
+    ['IV',p.iv],['Price',p.price],['Delta',p.greeks.delta],['Gamma',p.greeks.gamma],
+    ['Theta',p.greeks.theta],['Vega',p.greeks.vega],['Rho',p.greeks.rho],
+    ['',''],['Anchor HV',p.anchorHV],['Target HV',p.targetHV],['Vol Ratio',p.volRatio]];
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(sum),'Summary');
+  const vol=[['Strike%',...TB.map(t=>t+'d')]];
+  for(const m of MB){
+    const row=[`${m}%`];
+    for(const t of TB){const iv=interpolateIV(G.scaledSurface,p.spot,p.spot*(m/100),t);row.push(iv||null);}
+    vol.push(row);
+  }
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(vol),'Vol Surface');
+  XLSX.writeFile(wb,`option_${p.ticker}_${Date.now()}.xlsx`);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   INIT
+═══════════════════════════════════════════════════════════════ */
+document.getElementById('ticker').addEventListener('change',async function(){
+  const t=this.value.trim().toUpperCase();
+  const se=document.getElementById('spot');
+  if(!se.value){ const s=await fetchSpot(t); if(s){se.value=s;if(!document.getElementById('strike').value)document.getElementById('strike').value=Math.round(s);}}
+});
+document.getElementById('spot').addEventListener('input',function(){
+  const s=parseFloat(this.value);
+  if(s>0&&!document.getElementById('strike').value) document.getElementById('strike').value=Math.round(s);
+});
+(async()=>{
+  try{
+    const s=await fetchSpot('BTC');
+    if(s) document.getElementById('spot').placeholder=`e.g. ${s.toLocaleString()} (BTC)`;
+  }catch(_){}
+})();
+</script>
+</body>
+</html>
